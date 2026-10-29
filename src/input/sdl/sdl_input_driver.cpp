@@ -112,6 +112,23 @@ void SDLInputDriver::OnWindowAvailable(rex::ui::Window* window) {
           }
         }
       }
+      // SDL only announces pads at the first init of the gamepad subsystem. If
+      // something else in this process (the launch menu) already initialised it,
+      // no "added" events are sent for pads that are already connected and the
+      // game would never see them. Announce the existing ones ourselves; the
+      // handler ignores a pad it already knows.
+      {
+        int count = 0;
+        if (SDL_JoystickID* ids = SDL_GetGamepads(&count)) {
+          for (int i = 0; i < count; ++i) {
+            SDL_Event added = {};
+            added.type = SDL_EVENT_GAMEPAD_ADDED;
+            added.gdevice.which = ids[i];
+            HandleEvent(added);
+          }
+          SDL_free(ids);
+        }
+      }
       REXLOG_INFO("SDL input driver initialized successfully");
     });
   }
@@ -441,6 +458,9 @@ void SDLInputDriver::ProcessEventLocked(const SDL_Event& event) {
 }
 
 void SDLInputDriver::OnControllerDeviceAddedLocked(const SDL_Event& event) {
+  if (GetControllerIndexFromInstanceID(event.gdevice.which)) {
+    return;  // already open (announced twice)
+  }
   const auto controller = SDL_OpenGamepad(event.gdevice.which);
   if (!controller) {
     assert_always();
